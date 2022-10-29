@@ -1,34 +1,78 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type CourseTree struct {
 	Course
 
-	Folders []TreeFolder
+	root   *TreeFolder
+	lookup map[uint64]*TreeFolder
 }
 
-func (course *CourseTree) AddFolder(folder Folder) error {
-	course.Folders = append(course.Folders, TreeFolder{Folder: folder})
-	return nil
-}
+func NewCourseTree(course Course, folders []Folder, files []File) (*CourseTree, error) {
+	lookup := make(map[uint64]*TreeFolder)
+	var root *TreeFolder
 
-func (course *CourseTree) AddFile(file File) error {
-	for i := range course.Folders {
-		if file.FolderId == course.Folders[i].Id {
-			course.Folders[i].Files = append(course.Folders[i].Files, TreeFile{File: file})
-			return nil
+	for _, folder := range folders {
+		lookup[folder.Id] = &TreeFolder{Folder: folder}
+	}
+
+	for _, folder := range lookup {
+		if folder.ParentId == 0 {
+			if root != nil {
+				return nil, fmt.Errorf("root folder already exists")
+			}
+
+			root = folder
+		} else {
+			parent, ok := lookup[folder.ParentId]
+			if !ok {
+				return nil, fmt.Errorf("parent folder not found for %v", folder)
+			}
+
+			parent.folders = append(parent.folders, folder)
 		}
 	}
 
-	return fmt.Errorf("AddFile: could not find folder %d", file.FolderId)
+	for _, file := range files {
+		lookup[file.FolderId].files = append(lookup[file.FolderId].files, &TreeFile{File: file})
+	}
+
+	tree := &CourseTree{
+		Course: course,
+		root:   root,
+		lookup: lookup,
+	}
+
+	return tree, nil
+}
+
+func (tree *CourseTree) Traverse(callback func(folder *TreeFolder, level int) error) error {
+	var f func(*TreeFolder, int) error
+	f = func(folder *TreeFolder, level int) error {
+		if err := callback(folder, level); err != nil {
+			return err
+		}
+
+		for _, childFolder := range folder.folders {
+			if err := f(childFolder, level+1); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	return f(tree.root, 0)
 }
 
 type TreeFolder struct {
 	Folder
 
-	Folders []TreeFolder
-	Files   []TreeFile
+	folders []*TreeFolder
+	files   []*TreeFile
 }
 
 type TreeFile struct {

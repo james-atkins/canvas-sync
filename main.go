@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -100,9 +101,10 @@ func BuildTree(ctx context.Context, api *CanvasApi, course Course) (*CourseTree,
 	filesC := make(chan []File, n)
 	folderC := make(chan uint64, n)
 
-	tree := &CourseTree{
-		Course: course,
-	}
+	// As Canvas does not necessarily return the folders and files in order, collect them in a flat
+	// slice first; and then create the tree structure.
+	var flatFolders []Folder
+	var flatFiles []File
 
 	// Goroutine to construct the tree
 	errgrp.Go(func() error {
@@ -119,7 +121,7 @@ func BuildTree(ctx context.Context, api *CanvasApi, course Course) (*CourseTree,
 				}
 
 				for _, folder := range folders {
-					tree.AddFolder(folder)
+					flatFolders = append(flatFolders, folder)
 
 					if folder.FilesCount > 0 {
 						// Get information about the files in the folder
@@ -137,7 +139,7 @@ func BuildTree(ctx context.Context, api *CanvasApi, course Course) (*CourseTree,
 				}
 
 				for _, file := range files {
-					tree.AddFile(file)
+					flatFiles = append(flatFiles, file)
 				}
 			}
 		}
@@ -154,6 +156,12 @@ func BuildTree(ctx context.Context, api *CanvasApi, course Course) (*CourseTree,
 	})
 
 	if err := errgrp.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Now create the tree structure
+	tree, err := NewCourseTree(course, flatFolders, flatFiles)
+	if err != nil {
 		return nil, err
 	}
 
@@ -242,9 +250,16 @@ CourseLoop:
 			return err
 		}
 
-		for _, folder := range tree.Folders {
-			fmt.Println(folder)
-		}
+		fmt.Println(tree.Course.Name)
+		tree.Traverse(func(folder *TreeFolder, level int) error {
+			fmt.Printf("%s%s\n", strings.Repeat("  ", level), folder.Name)
+
+			for _, file := range folder.files {
+				fmt.Printf("%s%s\n", strings.Repeat("  ", level+1), file.FileName)
+			}
+
+			return nil
+		})
 	}
 
 	return nil
