@@ -15,24 +15,6 @@ import (
 type Course struct {
 	Id   uint64 `json:"id"`
 	Name string `json:"name"`
-
-	Folders []Folder
-}
-
-func (course *Course) AddFolder(folder Folder) error {
-	course.Folders = append(course.Folders, folder)
-	return nil
-}
-
-func (course *Course) AddFile(file File) error {
-	for i := range course.Folders {
-		if file.FolderId == course.Folders[i].Id {
-			course.Folders[i].Files = append(course.Folders[i].Files, file)
-			return nil
-		}
-	}
-
-	return fmt.Errorf("AddFile: could not find folder %d", file.FolderId)
 }
 
 type Folder struct {
@@ -43,9 +25,6 @@ type Folder struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 	FoldersCount uint64    `json:"folders_count"`
 	FilesCount   uint64    `json:"files_count"`
-
-	Folders []Folder
-	Files   []File
 }
 
 type File struct {

@@ -92,7 +92,7 @@ Loop:
 	return nil
 }
 
-func BuildTree(ctx context.Context, api *CanvasApi, courseId uint64) error {
+func BuildTree(ctx context.Context, api *CanvasApi, course Course) (*CourseTree, error) {
 	errgrp, ctx := errgroup.WithContext(ctx)
 
 	n := 10
@@ -100,8 +100,8 @@ func BuildTree(ctx context.Context, api *CanvasApi, courseId uint64) error {
 	filesC := make(chan []File, n)
 	folderC := make(chan uint64, n)
 
-	course := &Course{
-		Id: courseId,
+	tree := &CourseTree{
+		Course: course,
 	}
 
 	// Goroutine to construct the tree
@@ -119,7 +119,7 @@ func BuildTree(ctx context.Context, api *CanvasApi, courseId uint64) error {
 				}
 
 				for _, folder := range folders {
-					course.AddFolder(folder)
+					tree.AddFolder(folder)
 
 					if folder.FilesCount > 0 {
 						// Get information about the files in the folder
@@ -137,27 +137,27 @@ func BuildTree(ctx context.Context, api *CanvasApi, courseId uint64) error {
 				}
 
 				for _, file := range files {
-					course.AddFile(file)
+					tree.AddFile(file)
 				}
 			}
-		}
-
-		for _, folder := range course.Folders {
-			fmt.Print(folder)
 		}
 
 		return nil
 	})
 
 	errgrp.Go(func() error {
-		return listFoldersInCourse(ctx, api, foldersC, courseId)
+		return listFoldersInCourse(ctx, api, foldersC, course.Id)
 	})
 
 	errgrp.Go(func() error {
 		return listFilesInFolders(ctx, api, folderC, filesC)
 	})
 
-	return errgrp.Wait()
+	if err := errgrp.Wait(); err != nil {
+		return nil, err
+	}
+
+	return tree, nil
 }
 
 type Config struct {
@@ -237,8 +237,13 @@ CourseLoop:
 			}
 		}
 
-		if err := BuildTree(ctx, api, course.Id); err != nil {
+		tree, err := BuildTree(ctx, api, course)
+		if err != nil {
 			return err
+		}
+
+		for _, folder := range tree.Folders {
+			fmt.Println(folder)
 		}
 	}
 
