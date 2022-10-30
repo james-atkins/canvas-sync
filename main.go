@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -250,16 +249,9 @@ CourseLoop:
 			return err
 		}
 
-		fmt.Println(tree.Course.Name)
-		tree.Traverse(func(folder *TreeFolder, level int) error {
-			fmt.Printf("%s%s\n", strings.Repeat("  ", level), folder.Name)
-
-			for _, file := range folder.files {
-				fmt.Printf("%s%s\n", strings.Repeat("  ", level+1), file.FileName)
-			}
-
-			return nil
-		})
+		if err := SyncTree(ctx, api, tree, config.Directory); err != nil {
+			return err
+		}
 	}
 
 	return nil

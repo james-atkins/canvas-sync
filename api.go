@@ -30,7 +30,7 @@ type Folder struct {
 type File struct {
 	Id          uint64    `json:"id"`
 	FolderId    uint64    `json:"folder_id"`
-	FileName    string    `json:"filename"`
+	FileName    string    `json:"display_name"`
 	Size        int64     `json:"size"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -68,6 +68,32 @@ func (api *CanvasApi) MakeFilesInFolderUrl(folderId uint64) string {
 func (canvas *CanvasApi) FilesInFolder(ctx context.Context, url string) (files []File, next string, err error) {
 	files, next, err = callAPI[File](canvas, canvas.Client, url)
 	return
+}
+
+func (canvas *CanvasApi) DownloadFile(ctx context.Context, w io.WriteCloser, downloadUrl string) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", downloadUrl, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := canvas.Client.Do(req)
+	if err != nil {
+		return fmt.Errorf("client error for %s: %w", downloadUrl, err)
+	}
+
+	// TODO: rate limiting
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP error for %s: %d", downloadUrl, resp.StatusCode)
+	}
+
+	defer resp.Body.Close()
+	_, err = io.Copy(w, resp.Body)
+	if err != nil {
+		return err
+	}
+
+	return w.Close()
 }
 
 var errForbidden error = errors.New("forbidden")

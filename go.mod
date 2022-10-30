@@ -6,3 +6,5 @@ require (
 	github.com/peterhellberg/link v1.1.0
 	golang.org/x/sync v0.1.0
 )
+
+require github.com/natefinch/atomic v1.0.1
