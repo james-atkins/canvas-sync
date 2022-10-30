@@ -107,87 +107,91 @@ type TreeFile struct {
 	File
 }
 
-// Now we go and compare the tree with the local file directory
+type FileToSync struct {
+	File File
+	Path string
+}
+
+// Traverse over a course tree and check whether the files and folders exist on the local disk in
+// the directory tree at rootDirectory. Send files that do not exist or are not up-to-date with the
+// copy on Canvas to the fileToSyncC channel.
+// This does NOT close the fileToSyncC channel after exiting.
+func filesToSync(ctx context.Context, rootDirectory string, fileToSyncC chan<- FileToSync, tree *CourseTree) error {
+	var f func(folder *TreeFolder, pathElems []string, parentsNotOnDisk bool) error
+	f = func(folder *TreeFolder, pathElems []string, parentsNotOnDisk bool) error {
+		folderPath := filepath.Join(pathElems...)
+
+		// Check whether this folder exists on the disk.
+		// If the folder is not on the disk, then its files are not too and so we can speed up by
+		// not checking for them. Furthermore, if one of a folder's parent folders are not on the
+		// disk, then the folder cannot be either, and so we can avoid an unnecessary Stat.
+		var folderNotOnDisk bool
+		if parentsNotOnDisk {
+			folderNotOnDisk = true
+		} else {
+			_, err := os.Stat(folderPath)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			if errors.Is(err, os.ErrNotExist) {
+				folderNotOnDisk = true
+			}
+		}
+
+		for _, file := range folder.files {
+			filePath := filepath.Join(folderPath, file.FileName)
+
+			if !folderNotOnDisk {
+				fi, err := os.Stat(filePath)
+				if err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+
+				if err == nil && file.UpdatedAt.Equal(fi.ModTime()) && file.Size == fi.Size() {
+					// The file exists on disk and is up-to-date with the copy on Canvas. No need
+					// to download again.
+					continue
+				}
+			}
+
+			// File does not exist on disk or is not up-to-date with the copy on Canvas.
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case fileToSyncC <- FileToSync{File: file.File, Path: filePath}:
+			}
+		}
+
+		for _, childFolder := range folder.folders {
+			// Recurse
+			if err := f(childFolder, append(pathElems, childFolder.Name), folderNotOnDisk); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	// Start recursing from the root folder of the course tree
+	err := f(tree.root, []string{rootDirectory, tree.Course.Name}, false)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
 
 func SyncTree(ctx context.Context, api *CanvasApi, tree *CourseTree, rootDirectory string) error {
 	errgrp, ctx := errgroup.WithContext(ctx)
 
-	type fileToDownload struct {
-		File File
-		Path string
-	}
-
-	downloadC := make(chan fileToDownload)
+	fileToSyncC := make(chan FileToSync)
 
 	errgrp.Go(func() error {
-		var f func(folder *TreeFolder, pathElems []string, parentsNotOnDisk bool) error
-		f = func(folder *TreeFolder, pathElems []string, parentsNotOnDisk bool) error {
-			folderPath := filepath.Join(pathElems...)
-
-			// Check whether folder is on disk
-			var folderNotOnDisk bool
-			if !parentsNotOnDisk {
-				_, err := os.Stat(folderPath)
-				if err != nil && !errors.Is(err, os.ErrNotExist) {
-					return err
-				}
-				if errors.Is(err, os.ErrNotExist) {
-					folderNotOnDisk = true
-				}
-			}
-
-			for _, file := range folder.files {
-				filePath := filepath.Join(folderPath, file.FileName)
-
-				if folderNotOnDisk {
-					select {
-					case <-ctx.Done():
-						return ctx.Err()
-					case downloadC <- fileToDownload{File: file.File, Path: filePath}:
-					}
-				} else {
-					// We need to check whether each file is up to date
-					fi, err := os.Stat(filePath)
-					if err != nil && !errors.Is(err, os.ErrNotExist) {
-						return err
-					}
-					if errors.Is(err, os.ErrNotExist) {
-						select {
-						case <-ctx.Done():
-							return ctx.Err()
-						case downloadC <- fileToDownload{File: file.File, Path: filePath}:
-						}
-
-						continue
-					}
-
-					// File on canvas is different to local copy so download again
-					if !(file.UpdatedAt.Equal(fi.ModTime()) && file.Size == fi.Size()) {
-						select {
-						case <-ctx.Done():
-							return ctx.Err()
-						case downloadC <- fileToDownload{File: file.File, Path: filePath}:
-						}
-					}
-				}
-			}
-
-			for _, childFolder := range folder.folders {
-				// Recurse
-				if err := f(childFolder, append(pathElems, childFolder.Name), folderNotOnDisk); err != nil {
-					return err
-				}
-			}
-
-			return nil
-		}
-
-		err := f(tree.root, []string{rootDirectory, tree.Course.Name}, false)
-		if err != nil {
+		if err := filesToSync(ctx, rootDirectory, fileToSyncC, tree); err != nil {
 			return err
 		}
 
-		close(downloadC)
+		close(fileToSyncC)
 		return nil
 	})
 
@@ -197,7 +201,7 @@ func SyncTree(ctx context.Context, api *CanvasApi, tree *CourseTree, rootDirecto
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
-				case file, more := <-downloadC:
+				case file, more := <-fileToSyncC:
 					if !more {
 						return nil
 					}
