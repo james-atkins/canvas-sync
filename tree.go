@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 
@@ -204,8 +203,6 @@ func downloadAndWriteFile(ctx context.Context, api *CanvasApi, file FileToSync) 
 	if err := atomicFile.ReplaceFile(f.Name(), file.Path); err != nil {
 		return err
 	}
-
-	log.Printf("Downloaded %s", file.Path)
 
 	return nil
 }

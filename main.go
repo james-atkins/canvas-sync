@@ -10,7 +10,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"time"
 
+	"github.com/schollz/progressbar/v3"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -349,6 +351,20 @@ func sync(ctx context.Context) error {
 		return nil
 	})
 
+	progress := progressbar.NewOptions64(
+		-1,
+		progressbar.OptionSpinnerType(14),
+		progressbar.OptionSetDescription(fmt.Sprintf("Syncing %s", config.Url)),
+		progressbar.OptionSetWriter(os.Stderr),
+		progressbar.OptionThrottle(20*time.Millisecond),
+		progressbar.OptionShowCount(),
+		progressbar.OptionShowIts(),
+		progressbar.OptionSetItsString("files"),
+		progressbar.OptionFullWidth(),
+		progressbar.OptionUseANSICodes(true),
+	)
+	progress.RenderBlank()
+
 	const numDownloaders = 10
 
 	for i := 0; i < numDownloaders; i++ {
@@ -365,10 +381,19 @@ func sync(ctx context.Context) error {
 					if err := downloadAndWriteFile(ctx, api, file); err != nil {
 						return err
 					}
+					progress.Add(1)
 				}
 			}
 		})
 	}
 
-	return errgrp.Wait()
+	if err := errgrp.Wait(); err != nil {
+		return err
+	}
+
+	if err := progress.Finish(); err != nil {
+		return err
+	}
+
+	return nil
 }
