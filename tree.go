@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 
 	atomicFile "github.com/natefinch/atomic"
-
-	"golang.org/x/sync/errgroup"
 )
 
 type CourseTree struct {
@@ -181,69 +179,33 @@ func filesToSync(ctx context.Context, rootDirectory string, fileToSyncC chan<- F
 	return nil
 }
 
-func SyncTree(ctx context.Context, api *CanvasApi, tree *CourseTree, rootDirectory string) error {
-	errgrp, ctx := errgroup.WithContext(ctx)
-
-	fileToSyncC := make(chan FileToSync)
-
-	errgrp.Go(func() error {
-		if err := filesToSync(ctx, rootDirectory, fileToSyncC, tree); err != nil {
-			return err
-		}
-
-		close(fileToSyncC)
-		return nil
-	})
-
-	for i := 0; i < 10; i++ {
-		errgrp.Go(func() error {
-			for {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case file, more := <-fileToSyncC:
-					if !more {
-						return nil
-					}
-
-					err := func() error {
-						if err := os.MkdirAll(filepath.Dir(file.Path), 0755); err != nil {
-							return err
-						}
-
-						f, err := os.CreateTemp(filepath.Dir(file.Path), "canvassync")
-						if err != nil {
-							return err
-						}
-						defer func() {
-							f.Close()
-							os.Remove(f.Name())
-						}()
-
-						if err := api.DownloadFile(ctx, f, file.File.DownloadUrl); err != nil {
-							return err
-						}
-
-						if err := os.Chtimes(f.Name(), file.File.UpdatedAt, file.File.UpdatedAt); err != nil {
-							return err
-						}
-
-						if err := atomicFile.ReplaceFile(f.Name(), file.Path); err != nil {
-							return err
-						}
-
-						log.Printf("Downloaded %s", file.Path)
-
-						return nil
-					}()
-					if err != nil {
-						return err
-					}
-
-				}
-			}
-		})
+func downloadAndWriteFile(ctx context.Context, api *CanvasApi, file FileToSync) error {
+	if err := os.MkdirAll(filepath.Dir(file.Path), 0755); err != nil {
+		return err
 	}
 
-	return errgrp.Wait()
+	f, err := os.CreateTemp(filepath.Dir(file.Path), "canvassync")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		f.Close()
+		os.Remove(f.Name())
+	}()
+
+	if err := api.DownloadFile(ctx, f, file.File.DownloadUrl); err != nil {
+		return err
+	}
+
+	if err := os.Chtimes(f.Name(), file.File.UpdatedAt, file.File.UpdatedAt); err != nil {
+		return err
+	}
+
+	if err := atomicFile.ReplaceFile(f.Name(), file.Path); err != nil {
+		return err
+	}
+
+	log.Printf("Downloaded %s", file.Path)
+
+	return nil
 }

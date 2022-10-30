@@ -14,6 +14,41 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+func listCourses(ctx context.Context, api *CanvasApi, coursesC chan<- []Course) error {
+	errgrp, ctx := errgroup.WithContext(ctx)
+
+	var worker func(url string) error
+	worker = func(url string) error {
+		courses, next, err := api.Courses(ctx, url)
+		if err != nil {
+			return err
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case coursesC <- courses:
+		}
+
+		if next != "" {
+			// Spawn another worker for next page
+			errgrp.Go(func() error { return worker(next) })
+		}
+
+		return nil
+	}
+
+	// Spawn worker for first page
+	errgrp.Go(func() error { return worker(api.MakeCoursesUrl()) })
+
+	if err := errgrp.Wait(); err != nil {
+		return err
+	}
+
+	close(coursesC)
+	return nil
+}
+
 func listFoldersInCourse(ctx context.Context, api *CanvasApi, foldersC chan<- []Folder, courseId uint64) error {
 	errgrp, ctx := errgroup.WithContext(ctx)
 
@@ -228,29 +263,112 @@ func sync(ctx context.Context) error {
 		Token:   config.Token,
 	}
 
-	courses, _, err := api.Courses(ctx, api.MakeCoursesUrl())
-	if err != nil {
-		return err
-	}
+	errgrp, ctx := errgroup.WithContext(ctx)
 
-CourseLoop:
-	for _, course := range courses {
-		// Skip ignored courses
-		for _, ignoredCourseId := range config.IgnoredCourses {
-			if course.Id == ignoredCourseId {
-				continue CourseLoop
+	coursesC := make(chan []Course)
+
+	errgrp.Go(func() error {
+		return listCourses(ctx, api, coursesC)
+	})
+
+	treeC := make(chan *CourseTree)
+
+	// Goroutine to loop through all the courses received on the coursesC channel and start
+	// child goroutines to build course trees, and then send them to the treeC channel. When
+	// finished, closes the treeC channel.
+	errgrp.Go(func() error {
+		errgrp, ctx := errgroup.WithContext(ctx)
+
+	Loop:
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case courses, more := <-coursesC:
+				if !more {
+					break Loop
+				}
+			CourseLoop:
+				for _, course := range courses {
+					// Skip ignored courses
+					for _, ignoredCourseId := range config.IgnoredCourses {
+						if course.Id == ignoredCourseId {
+							continue CourseLoop
+						}
+					}
+
+					course := course
+					errgrp.Go(func() error {
+						tree, err := BuildTree(ctx, api, course)
+						if err != nil {
+							return err
+						}
+
+						select {
+						case <-ctx.Done():
+							return ctx.Err()
+						case treeC <- tree:
+							return nil
+						}
+					})
+				}
 			}
 		}
 
-		tree, err := BuildTree(ctx, api, course)
-		if err != nil {
+		if err := errgrp.Wait(); err != nil {
 			return err
 		}
 
-		if err := SyncTree(ctx, api, tree, config.Directory); err != nil {
+		close(treeC)
+		return nil
+	})
+
+	fileToSyncC := make(chan FileToSync)
+
+	errgrp.Go(func() error {
+		errgrp, ctx := errgroup.WithContext(ctx)
+
+	Loop:
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case tree, more := <-treeC:
+				if !more {
+					break Loop
+				}
+				errgrp.Go(func() error { return filesToSync(ctx, config.Directory, fileToSyncC, tree) })
+			}
+		}
+
+		if err := errgrp.Wait(); err != nil {
 			return err
 		}
+
+		close(fileToSyncC)
+		return nil
+	})
+
+	const numDownloaders = 10
+
+	for i := 0; i < numDownloaders; i++ {
+		errgrp.Go(func() error {
+			for {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case file, more := <-fileToSyncC:
+					if !more {
+						return nil
+					}
+
+					if err := downloadAndWriteFile(ctx, api, file); err != nil {
+						return err
+					}
+				}
+			}
+		})
 	}
 
-	return nil
+	return errgrp.Wait()
 }
