@@ -13,7 +13,7 @@ In order to authenticate with the server an access token must be generated. An a
 
 To create a token:
 
-1. On Canvas, go to "Account" followed by "Settings.
+1. On Canvas, go to "Account" followed by "Settings".
 2. Under "Approved integrations", click on the "New access token" button.
 3. Put canvas-sync as the token's purpose and then click on the "Generate token" button.
 4. Copy and paste the token in the configuration file, described below.
