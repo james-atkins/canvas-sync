@@ -2,6 +2,8 @@
 
 `canvas-sync` downloads files from a [Canvas by Instructure](https://www.instructure.com/canvas) web server and creates a similar folder structure on your local computer.
 
+https://user-images.githubusercontent.com/9221409/198899719-59d226a6-753e-4a4a-8d3a-ded6ad2dee2a.mp4
+
 ## Setup
 
 ### Access Token
