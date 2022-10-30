@@ -10,8 +10,10 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/schollz/progressbar/v3"
 	"golang.org/x/sync/errgroup"
 )
@@ -209,6 +211,11 @@ type Config struct {
 	IgnoredCourses []uint64 `json:"ignored_courses"`
 }
 
+type Statistics struct {
+	FilesSynced      atomic.Uint64
+	BytesTransferred atomic.Uint64
+}
+
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	signalChan := make(chan os.Signal, 1)
@@ -365,6 +372,8 @@ func sync(ctx context.Context) error {
 	)
 	progress.RenderBlank()
 
+	var stats Statistics
+
 	const numDownloaders = 10
 
 	for i := 0; i < numDownloaders; i++ {
@@ -381,7 +390,10 @@ func sync(ctx context.Context) error {
 					if err := downloadAndWriteFile(ctx, api, file); err != nil {
 						return err
 					}
+
 					progress.Add(1)
+					stats.FilesSynced.Add(1)
+					stats.BytesTransferred.Add(uint64(file.File.Size))
 				}
 			}
 		})
@@ -393,6 +405,14 @@ func sync(ctx context.Context) error {
 
 	if err := progress.Finish(); err != nil {
 		return err
+	}
+
+	if stats.FilesSynced.Load() == 0 {
+		fmt.Printf("✓ Up to date with %s.\n", config.Url)
+	} else if stats.FilesSynced.Load() == 1 {
+		fmt.Printf("✓ Transferred 1 file (%s) from %s.\n", humanize.Bytes(stats.BytesTransferred.Load()), config.Url)
+	} else {
+		fmt.Printf("✓ Transferred %d files (%s) from %s.\n", stats.FilesSynced.Load(), humanize.Bytes(stats.BytesTransferred.Load()), config.Url)
 	}
 
 	return nil

@@ -8,6 +8,7 @@ require (
 )
 
 require (
+	github.com/dustin/go-humanize v1.0.0
 	github.com/natefinch/atomic v1.0.1
 	github.com/schollz/progressbar/v3 v3.11.0
 )
