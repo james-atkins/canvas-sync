@@ -220,11 +220,11 @@ func SyncTree(ctx context.Context, api *CanvasApi, tree *CourseTree, rootDirecto
 							return err
 						}
 
-						if err := atomicFile.ReplaceFile(f.Name(), file.Path); err != nil {
+						if err := os.Chtimes(f.Name(), file.File.UpdatedAt, file.File.UpdatedAt); err != nil {
 							return err
 						}
 
-						if err := os.Chtimes(file.Path, file.File.UpdatedAt, file.File.UpdatedAt); err != nil {
+						if err := atomicFile.ReplaceFile(f.Name(), file.Path); err != nil {
 							return err
 						}
 
