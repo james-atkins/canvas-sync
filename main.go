@@ -137,9 +137,7 @@ func BuildTree(ctx context.Context, api *CanvasApi, course Course) (*CourseTree,
 					break Loop
 				}
 
-				for _, file := range files {
-					flatFiles = append(flatFiles, file)
-				}
+				flatFiles = append(flatFiles, files...)
 			}
 		}
 
