@@ -20,7 +20,7 @@ To create a token:
 
 ### Configuration File
 
-Next, create a JSON file in your home directory called `.canvassync.json` like the following
+Next, create a folder called `canvas-sync` in your [user config directory](https://pkg.go.dev/os#UserConfigDir) and then within this folder, create a JSON file called `config.json` like the following
 
 ```
 {
@@ -40,3 +40,6 @@ where:
 * `token` is the authentication token created as described in the previous section;
 * `directory` is the path to the directory on the local file system where you want Canvas files to be synced to;
 * and `ignored_courses` is a list of course IDs that you do not want to be synced.
+
+A future version of `canvas-sync` will create this config file automatically.
+

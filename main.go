@@ -251,12 +251,12 @@ func main() {
 }
 
 func sync(ctx context.Context) error {
-	homedir, err := os.UserHomeDir()
+	configdir, err := os.UserConfigDir()
 	if err != nil {
-		return fmt.Errorf("cannot find home directory: %w", err)
+		return fmt.Errorf("cannot find config directory: %w", err)
 	}
 
-	content, err := os.ReadFile(filepath.Join(homedir, ".canvassync.json"))
+	content, err := os.ReadFile(filepath.Join(configdir, "canvas-sync", "config.json"))
 	if err != nil {
 		return fmt.Errorf("cannot open config file: %w", err)
 	}
