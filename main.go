@@ -59,6 +59,9 @@ func listFoldersInCourse(ctx context.Context, api *CanvasApi, foldersC chan<- []
 	var worker func(url string) error
 	worker = func(url string) error {
 		folders, next, err := api.FoldersInCourse(ctx, url)
+		if err == errForbidden {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -94,6 +97,9 @@ func listFilesInFolders(ctx context.Context, api *CanvasApi, folderC <-chan uint
 	var worker func(url string) error
 	worker = func(url string) error {
 		files, next, err := api.FilesInFolder(ctx, url)
+		if err == errForbidden {
+			return nil
+		}
 		if err != nil {
 			return err
 		}

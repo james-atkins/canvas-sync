@@ -34,8 +34,12 @@ func NewCourseTree(course Course, folders []Folder, files []File) (*CourseTree, 
 			root = folder
 		} else {
 			parent, ok := lookup[folder.ParentId]
+			// The Canvas API returns a flat list of all folders in the course including all subfolders too.
+			// But if a folder is locked/hidden, then that folder is not returned in the flat list but its
+			// subfolders are. So assume that if we find a folder without a parent, that we cannot see its
+			// parent and so we ignore this folder too.
 			if !ok {
-				return nil, fmt.Errorf("parent folder not found for %v", folder)
+				continue
 			}
 
 			parent.folders = append(parent.folders, folder)
